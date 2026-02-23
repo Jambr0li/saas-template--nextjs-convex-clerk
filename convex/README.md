@@ -1,90 +1,182 @@
-# Welcome to your Convex functions directory!
+# Convex + Clerk Patterns
 
-Write your Convex functions here.
-See https://docs.convex.dev/functions for more.
+Quick reference for common patterns in this stack. See the [Convex docs](https://docs.convex.dev) for full details.
 
-A query function that takes two arguments looks like:
+## Schema
+
+Define tables in `convex/schema.ts`:
 
 ```ts
-// convex/myFunctions.ts
-import { query } from "./_generated/server";
+import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-export const myQueryFunction = query({
-  // Validators for arguments.
-  args: {
-    first: v.number(),
-    second: v.string(),
-  },
+export default defineSchema({
+  posts: defineTable({
+    userId: v.string(),
+    title: v.string(),
+    content: v.string(),
+    isPublic: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_isPublic", ["isPublic", "createdAt"]),
+});
+```
 
-  // Function implementation.
-  handler: async (ctx, args) => {
-    // Read the database as many times as you need here.
-    // See https://docs.convex.dev/database/reading-data.
-    const documents = await ctx.db.query("tablename").collect();
+## Auth Patterns
 
-    // Arguments passed from the client are properties of the args object.
-    console.log(args.first, args.second);
+### Required auth — user must be signed in
 
-    // Write arbitrary JavaScript here: filter, aggregate, build derived data,
-    // remove non-public properties, or create new objects.
-    return documents;
+```ts
+import { query } from "./_generated/server";
+
+export const getMyData = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const userId = identity.subject;
+    // userId is the Clerk user ID — use it to scope data
+    return await ctx.db
+      .query("posts")
+      .filter((q) => q.eq(q.field("userId"), userId))
+      .collect();
   },
 });
 ```
 
-Using this query function in a React component looks like:
+### No auth — public data, anyone can call
 
 ```ts
-const data = useQuery(api.myFunctions.myQueryFunction, {
-  first: 10,
-  second: "hello",
+export const listPublicPosts = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("posts")
+      .filter((q) => q.eq(q.field("isPublic"), true))
+      .order("desc")
+      .collect();
+  },
 });
 ```
 
-A mutation function looks like:
+### Optional auth — works for both visitors and signed-in users
 
 ```ts
-// convex/myFunctions.ts
+export const listPosts = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    const posts = await ctx.db.query("posts").order("desc").collect();
+
+    if (identity) {
+      // Personalize for signed-in users
+      return posts.map((p) => ({ ...p, isOwner: p.userId === identity.subject }));
+    }
+    return posts.map((p) => ({ ...p, isOwner: false }));
+  },
+});
+```
+
+## Mutations
+
+```ts
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
-export const myMutationFunction = mutation({
-  // Validators for arguments.
+export const createPost = mutation({
   args: {
-    first: v.string(),
-    second: v.string(),
+    title: v.string(),
+    content: v.string(),
   },
-
-  // Function implementation.
   handler: async (ctx, args) => {
-    // Insert or modify documents in the database here.
-    // Mutations can also read from the database like queries.
-    // See https://docs.convex.dev/database/writing-data.
-    const message = { body: args.first, author: args.second };
-    const id = await ctx.db.insert("messages", message);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-    // Optionally, return a value from your mutation.
-    return await ctx.db.get(id);
+    return await ctx.db.insert("posts", {
+      userId: identity.subject,
+      title: args.title,
+      content: args.content,
+      isPublic: false,
+      createdAt: Date.now(),
+    });
   },
 });
 ```
 
-Using this mutation function in a React component looks like:
+### Ownership check before update/delete
 
 ```ts
-const mutation = useMutation(api.myFunctions.myMutationFunction);
-function handleButtonPress() {
-  // fire and forget, the most common way to use mutations
-  mutation({ first: "Hello!", second: "me" });
-  // OR
-  // use the result once the mutation has completed
-  mutation({ first: "Hello!", second: "me" }).then((result) =>
-    console.log(result),
-  );
+export const deletePost = mutation({
+  args: { id: v.id("posts") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const post = await ctx.db.get(args.id);
+    if (!post || post.userId !== identity.subject) {
+      throw new Error("Not found or unauthorized");
+    }
+
+    await ctx.db.delete(args.id);
+  },
+});
+```
+
+## Frontend Usage
+
+### Queries (real-time, auto-updating)
+
+```tsx
+"use client";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+
+export function PostsList() {
+  const posts = useQuery(api.posts.listPublicPosts);
+
+  if (posts === undefined) return <div>Loading...</div>;
+  if (posts.length === 0) return <div>No posts yet.</div>;
+
+  return posts.map((post) => <div key={post._id}>{post.title}</div>);
 }
 ```
 
-Use the Convex CLI to push your functions to a deployment. See everything
-the Convex CLI can do by running `npx convex -h` in your project root
-directory. To learn more, launch the docs with `npx convex docs`.
+### Mutations
+
+```tsx
+"use client";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+
+export function CreatePostButton() {
+  const createPost = useMutation(api.posts.createPost);
+
+  const handleClick = async () => {
+    await createPost({ title: "Hello", content: "World" });
+  };
+
+  return <button onClick={handleClick}>Create Post</button>;
+}
+```
+
+## Key Things to Remember
+
+- **`identity.subject`** is the Clerk user ID — store this as `userId` in your tables.
+- **Auth is opt-in per function.** If you don't call `ctx.auth.getUserIdentity()`, the function is public.
+- **Always verify ownership** before update/delete mutations — check that the document's `userId` matches `identity.subject`.
+- **`useQuery` returns `undefined` while loading**, not `null`. Handle the loading state.
+- **Convex queries are real-time** — they automatically re-run when underlying data changes. No need to refetch manually.
+- **Indexes matter for performance.** Add indexes for fields you filter or sort by frequently.
+
+## Dev Commands
+
+```bash
+# Run Next.js + Convex together
+npm run dev:all
+
+# Run Convex separately
+npm run convex:dev
+```
