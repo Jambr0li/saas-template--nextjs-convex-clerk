@@ -15,7 +15,7 @@ skeleton ready for you to add your own schema, queries, and pages.
 
 ## Prerequisites
 
-- Node.js 18+ with pnpm
+- Node.js 20.19+ with npm
 - Clerk account (https://clerk.com)
 - Convex account (https://convex.dev)
 
@@ -24,7 +24,7 @@ skeleton ready for you to add your own schema, queries, and pages.
 ### 1. Install Dependencies
 
 ```bash
-pnpm install
+npm install
 ```
 
 ### 2. Set Up Environment Variables
@@ -69,7 +69,7 @@ This will:
 Run both the Next.js and Convex dev servers in parallel:
 
 ```bash
-pnpm dev:all
+npm run dev:all
 ```
 
 The app will be available at `http://localhost:3000`.
@@ -103,12 +103,12 @@ The app will be available at `http://localhost:3000`.
 ## Available Scripts
 
 ```bash
-pnpm dev              # Start Next.js dev server
-pnpm convex:dev       # Start Convex dev server
-pnpm dev:all          # Run both servers concurrently
-pnpm build            # Build Next.js for production
-pnpm start            # Run the built Next.js app
-pnpm lint             # Run ESLint
+npm run dev           # Start Next.js dev server
+npm run convex:dev    # Start Convex dev server
+npm run dev:all       # Run both servers concurrently
+npm run build         # Build Next.js for production
+npm run start         # Run the built Next.js app
+npm run lint          # Run ESLint
 ```
 
 ## Production Deployment
