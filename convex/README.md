@@ -12,13 +12,13 @@ import { v } from "convex/values";
 
 export default defineSchema({
   posts: defineTable({
-    userId: v.string(),
+    tokenIdentifier: v.string(),
     title: v.string(),
     content: v.string(),
     isPublic: v.boolean(),
     createdAt: v.number(),
   })
-    .index("by_userId", ["userId"])
+    .index("by_tokenIdentifier", ["tokenIdentifier"])
     .index("by_isPublic", ["isPublic", "createdAt"]),
 });
 ```
@@ -37,12 +37,13 @@ export const getMyData = query({
     if (!identity) {
       throw new Error("Unauthorized");
     }
-    const userId = identity.subject;
-    // userId is the Clerk user ID — use it to scope data
+    // tokenIdentifier is Convex's stable auth identity key.
     return await ctx.db
       .query("posts")
-      .filter((q) => q.eq(q.field("userId"), userId))
-      .collect();
+      .withIndex("by_tokenIdentifier", (q) =>
+        q.eq("tokenIdentifier", identity.tokenIdentifier),
+      )
+      .take(50);
   },
 });
 ```
@@ -55,9 +56,9 @@ export const listPublicPosts = query({
   handler: async (ctx) => {
     return await ctx.db
       .query("posts")
-      .filter((q) => q.eq(q.field("isPublic"), true))
+      .withIndex("by_isPublic", (q) => q.eq("isPublic", true))
       .order("desc")
-      .collect();
+      .take(50);
   },
 });
 ```
@@ -69,11 +70,14 @@ export const listPosts = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
-    const posts = await ctx.db.query("posts").order("desc").collect();
+    const posts = await ctx.db.query("posts").order("desc").take(50);
 
     if (identity) {
       // Personalize for signed-in users
-      return posts.map((p) => ({ ...p, isOwner: p.userId === identity.subject }));
+      return posts.map((p) => ({
+        ...p,
+        isOwner: p.tokenIdentifier === identity.tokenIdentifier,
+      }));
     }
     return posts.map((p) => ({ ...p, isOwner: false }));
   },
@@ -96,7 +100,7 @@ export const createPost = mutation({
     if (!identity) throw new Error("Unauthorized");
 
     return await ctx.db.insert("posts", {
-      userId: identity.subject,
+      tokenIdentifier: identity.tokenIdentifier,
       title: args.title,
       content: args.content,
       isPublic: false,
@@ -116,7 +120,7 @@ export const deletePost = mutation({
     if (!identity) throw new Error("Unauthorized");
 
     const post = await ctx.db.get(args.id);
-    if (!post || post.userId !== identity.subject) {
+    if (!post || post.tokenIdentifier !== identity.tokenIdentifier) {
       throw new Error("Not found or unauthorized");
     }
 
@@ -164,12 +168,12 @@ export function CreatePostButton() {
 
 ## Key Things to Remember
 
-- **`identity.subject`** is the Clerk user ID — store this as `userId` in your tables.
+- **`identity.tokenIdentifier`** is Convex's stable auth identity key — prefer it for ownership and auth-linked lookups.
 - **Auth is opt-in per function.** If you don't call `ctx.auth.getUserIdentity()`, the function is public.
-- **Always verify ownership** before update/delete mutations — check that the document's `userId` matches `identity.subject`.
+- **Always verify ownership** before update/delete mutations — check that the document's owner field matches `identity.tokenIdentifier`.
 - **`useQuery` returns `undefined` while loading**, not `null`. Handle the loading state.
 - **Convex queries are real-time** — they automatically re-run when underlying data changes. No need to refetch manually.
-- **Indexes matter for performance.** Add indexes for fields you filter or sort by frequently.
+- **Indexes matter for performance.** Prefer `withIndex` over JavaScript-side `.filter()` for fields you filter or sort by frequently.
 
 ## Dev Commands
 
