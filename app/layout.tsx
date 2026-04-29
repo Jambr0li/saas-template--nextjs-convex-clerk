@@ -4,8 +4,7 @@ import {
   ClerkProvider,
   SignInButton,
   SignUpButton,
-  SignedIn,
-  SignedOut,
+  Show,
   UserButton,
 } from '@clerk/nextjs'
 import { Geist, Geist_Mono } from 'next/font/google'
@@ -34,22 +33,22 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <ClerkProvider dynamic>
-      <html lang="en">
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen flex flex-col overflow-hidden`}>
+    <html lang="en">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased h-screen flex flex-col overflow-hidden`}>
+        <ClerkProvider dynamic>
           <header className="sticky top-0 z-50 flex justify-between items-center p-4 gap-4 h-16 shrink-0 border-b bg-background">
             <div className="flex justify-end items-center gap-4">
-              <SignedOut>
+              <Show when="signed-out">
                 <SignInButton />
                 <SignUpButton>
                   <Button>
                     Sign Up
                   </Button>
                 </SignUpButton>
-              </SignedOut>
-              <SignedIn>
+              </Show>
+              <Show when="signed-in">
                 <UserButton />
-              </SignedIn>
+              </Show>
             </div>
           </header>
           <ConvexClientProvider>
@@ -58,8 +57,8 @@ export default function RootLayout({
             </main>
           </ConvexClientProvider>
           <Toaster richColors position="top-right" />
-        </body>
-        </html>
-    </ClerkProvider>
+        </ClerkProvider>
+      </body>
+    </html>
   )
 }
